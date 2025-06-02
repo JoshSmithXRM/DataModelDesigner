@@ -6,7 +6,12 @@ import {
 } from "../types/DbmlTypes";
 
 export default class DbmlParser {
+  private relationships: DbmlRelationship[] = [];
+
   parse(dbmlText: string): DbmlSchema {
+    // Reset relationships for each parse
+    this.relationships = [];
+    
     const schema: DbmlSchema = {
       tables: [],
       relationships: [],
@@ -26,9 +31,7 @@ export default class DbmlParser {
           schema.tables.push(table);
         }
       }
-    }
-
-    // Parse relationships
+    }    // Parse relationships
     const relationshipMatches = cleanText.match(
       /Ref:\s*(\w+)\.(\w+)\s*([<>-]+)\s*(\w+)\.(\w+)/g
     );
@@ -40,6 +43,9 @@ export default class DbmlParser {
         }
       }
     }
+
+    // Add relationships collected from inline ref: attributes
+    schema.relationships.push(...this.relationships);
 
     return schema;
   }
@@ -78,7 +84,7 @@ export default class DbmlParser {
       .filter((line) => line.length > 0);
 
     for (const line of columnLines) {
-      const column = this.parseColumn(line);
+      const column = this.parseColumn(line, tableName);
       if (column) {
         table.columns.push(column);
       }
@@ -87,14 +93,10 @@ export default class DbmlParser {
     return table;
   }
 
-  private parseColumn(columnText: string): DbmlColumn | null {
-    // Basic column parsing: name type [attributes]
-    const columnMatch = columnText.match(/(\w+)\s+(\w+(?:\(\d+\))?)\s*(.*)?/);
-
-    if (!columnMatch) {
-      console.log("No match found for column:", columnText);
-      return null;
-    }
+  private parseColumn(line: string, tableName: string): DbmlColumn | null {
+    // Match column definition: name type [attributes]
+    const columnMatch = line.match(/^(\w+)\s+(\w+)(?:\s*\[(.*?)\])?/);
+    if (!columnMatch) return null;
 
     const [, name, type, attributes] = columnMatch;
     const column: DbmlColumn = {
@@ -120,10 +122,36 @@ export default class DbmlParser {
         column.defaultValue = defaultMatch[1];
       }
 
-      // Parse note
-      const noteMatch = attributes.match(/note:\s*['"]([^'"]+)['"]/);
-      if (noteMatch) {
-        column.note = noteMatch[1];
+      // Parse inline ref: attributes and create relationships
+      const refMatch = attributes.match(/ref:\s*([<>-]+)\s*(\w+)\.(\w+)/);
+      if (refMatch) {
+        const [, relationSymbol, targetTable, targetColumn] = refMatch;
+
+        // Create relationship based on the symbol
+        let type: DbmlRelationship["type"];
+        switch (relationSymbol.trim()) {
+          case "-":
+            type = "one-to-one";
+            break;
+          case "<":
+            type = "many-to-one";
+            break;
+          case ">":
+            type = "one-to-many";
+            break;
+          case "<>":
+            type = "many-to-many";
+            break;
+          default:
+            type = "one-to-many";
+        }        // Add the relationship to our global relationships array
+        this.relationships.push({
+          fromTable: tableName,
+          fromColumn: name,
+          toTable: targetTable,
+          toColumn: targetColumn,
+          type,
+        });
       }
     }
 
