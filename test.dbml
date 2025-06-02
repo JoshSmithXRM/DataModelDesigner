@@ -1,0 +1,14 @@
+Table simple_test {
+  id integer [primary key]
+  name varchar
+  email varchar [unique]
+  age integer
+}
+
+Table test_relations {
+  id integer [primary key]
+  simple_id integer
+  description text
+}
+
+Ref: test_relations.simple_id > simple_test.id
